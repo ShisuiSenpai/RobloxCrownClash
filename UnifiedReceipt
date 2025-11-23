@@ -1,0 +1,211 @@
+-- Unified ProcessReceipt Handler
+-- This script handles ALL Developer Product purchases for:
+-- 1. Donation Board
+-- 2. Premium Crate System
+-- Place this in ServerScriptService
+
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("[UNIFIED RECEIPT] Loading unified ProcessReceipt handler...")
+
+-- ========================================
+-- WAIT FOR DEPENDENCIES
+-- ========================================
+
+-- Wait for donation board processor to load
+repeat task.wait(0.5) until shared["_db/connect"]
+local DonationProcessor = shared["_db/connect"]
+
+print("[UNIFIED RECEIPT] Donation board processor found")
+
+-- Wait for crate system dependencies
+repeat task.wait(0.5) until _G.InventoryManager and _G.CurrencyManager
+print("[UNIFIED RECEIPT] Crate system dependencies found")
+
+-- Load SwordConfig
+local modulesFolder = ReplicatedStorage:WaitForChild("Modules", 10)
+local SwordConfig = require(modulesFolder:WaitForChild("SwordConfig", 10))
+
+print("[UNIFIED RECEIPT] All dependencies loaded")
+
+-- ========================================
+-- CRATE SYSTEM CONFIG
+-- ========================================
+
+local CRATE_CONFIG = {
+	Premium = {
+		Cost = 99,
+		ProductId = 3456862454, -- ⚠️ SET YOUR PREMIUM CRATE PRODUCT ID HERE!
+		PremiumRarities = {
+			{name = "Legendary", weight = 98},
+			{name = "Godly", weight = 1},
+			{name = "???", weight = 1},
+		},
+	},
+}
+
+-- ========================================
+-- HELPER FUNCTIONS
+-- ========================================
+
+local function chooseRandomSword(crateType)
+	local rarities = CRATE_CONFIG.Premium.PremiumRarities
+
+	local totalWeight = 0
+	for _, rarity in ipairs(rarities) do
+		totalWeight = totalWeight + rarity.weight
+	end
+
+	local roll = math.random() * totalWeight
+	local cumulative = 0
+	local selectedRarity = "Legendary"
+
+	for _, rarity in ipairs(rarities) do
+		cumulative = cumulative + rarity.weight
+		if roll <= cumulative then
+			selectedRarity = rarity.name
+			break
+		end
+	end
+
+	print("[UNIFIED RECEIPT] Selected rarity:", selectedRarity, "from Premium crate")
+
+	-- Get swords by rarity
+	local swordsByRarity = {}
+	for swordName, swordData in pairs(SwordConfig.Swords) do
+		if swordData.Rarity == selectedRarity then
+			table.insert(swordsByRarity, {
+				SwordName = swordName,
+				Rarity = swordData.Rarity
+			})
+		end
+	end
+
+	if #swordsByRarity == 0 then
+		warn("[UNIFIED RECEIPT] No swords found for rarity:", selectedRarity)
+		return nil
+	end
+
+	local randomSword = swordsByRarity[math.random(1, #swordsByRarity)]
+	print("[UNIFIED RECEIPT] Chosen sword:", randomSword.SwordName, "(", selectedRarity, ")")
+
+	return randomSword
+end
+
+-- ========================================
+-- PREMIUM CRATE HANDLER
+-- ========================================
+
+local playersOpening = {}
+local openCrateEvent = ReplicatedStorage:WaitForChild("OpenCrate", 10)
+
+local function handlePremiumCrate(receiptInfo)
+	local userId = receiptInfo.PlayerId
+	local player = Players:GetPlayerByUserId(userId)
+
+	print("[UNIFIED RECEIPT] Processing Premium Crate for UserId:", userId)
+
+	if not player then
+		warn("[UNIFIED RECEIPT] Player left before crate opened")
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+
+	-- Process in separate thread
+	task.spawn(function()
+		local success, errorMsg = pcall(function()
+			playersOpening[userId] = true
+
+			-- Choose random sword
+			local chosenSword = chooseRandomSword("Premium")
+			if not chosenSword then
+				error("Failed to choose sword")
+			end
+
+			print("[UNIFIED RECEIPT] Chosen sword:", chosenSword.SwordName, "for", player.Name)
+
+			-- Get all sword names for animation
+			local allSwordNames = {}
+			for swordName, _ in pairs(SwordConfig.Swords) do
+				table.insert(allSwordNames, swordName)
+			end
+
+			-- Trigger animation
+			if openCrateEvent then
+				openCrateEvent:FireClient(player, chosenSword.SwordName, allSwordNames)
+				print("[UNIFIED RECEIPT] ✅ Animation event fired to", player.Name)
+			end
+
+			-- Wait for animation
+			task.wait(7)
+
+			-- Check player still exists
+			if not player or not player.Parent then
+				warn("[UNIFIED RECEIPT] Player left during animation")
+				return
+			end
+
+			-- Award sword
+			print("[UNIFIED RECEIPT] Awarding sword to", player.Name)
+
+			if not _G.InventoryManager or not _G.InventoryManager.AddSword then
+				error("InventoryManager.AddSword not found!")
+			end
+
+			local addSuccess = _G.InventoryManager.AddSword(player, chosenSword.SwordName)
+			if addSuccess then
+				print("[UNIFIED RECEIPT] ✅", player.Name, "received (PREMIUM):", chosenSword.SwordName)
+			else
+				warn("[UNIFIED RECEIPT] AddSword returned false")
+			end
+		end)
+
+		if not success then
+			warn("[UNIFIED RECEIPT] ERROR in premium crate:", errorMsg)
+		end
+
+		-- Always unlock
+		playersOpening[userId] = nil
+		print("[UNIFIED RECEIPT] Player unmarked from opening")
+	end)
+
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+-- ========================================
+-- REGISTER WITH DONATION BOARD PROCESSOR
+-- ========================================
+
+-- Add crate handler with HIGH priority so it runs before donation board
+DonationProcessor:AddProcessor("premium_crate", "Highest", function(receiptInfo)
+	-- Check if this is OUR premium crate product
+	if receiptInfo.ProductId == CRATE_CONFIG.Premium.ProductId then
+		print("[UNIFIED RECEIPT] Premium Crate ProductId matched!")
+		return handlePremiumCrate(receiptInfo)
+	end
+
+	-- Not our product, let donation board handle it
+	return nil
+end)
+
+print("[UNIFIED RECEIPT] ========================================")
+print("[UNIFIED RECEIPT] ✅ Premium Crate handler registered!")
+print("[UNIFIED RECEIPT] Priority: HIGHEST (runs before donation board)")
+print("[UNIFIED RECEIPT] Listening for ProductId:", CRATE_CONFIG.Premium.ProductId)
+print("[UNIFIED RECEIPT] ========================================")
+
+if CRATE_CONFIG.Premium.ProductId == 0 then
+	warn("[UNIFIED RECEIPT] ⚠️ Premium Crate ProductId not set!")
+	warn("[UNIFIED RECEIPT] ⚠️ Set it on line ~48 of this script!")
+end
+
+-- ========================================
+-- CLEANUP
+-- ========================================
+
+Players.PlayerRemoving:Connect(function(player)
+	playersOpening[player.UserId] = nil
+end)
+
+print("[UNIFIED RECEIPT] System ready! Both donation board and premium crate will work! ✅")
