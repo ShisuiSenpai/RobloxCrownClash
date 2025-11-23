@@ -21,6 +21,10 @@ local COMMANDS = {
 		amount = 5000,
 		requiresAdmin = true,
 	},
+	death = {
+		description = "Kills your character",
+		requiresAdmin = false,
+	},
 }
 
 -- Add your admin UserIds here (optional, if requiresAdmin = true)
@@ -61,12 +65,13 @@ end
 -- ========================================
 
 local function handleCommand(player, message)
-	-- Check if message is a command (starts with /)
-	if message:sub(1, 1) ~= "/" then
+	-- Check if message is a command (starts with / or !)
+	local firstChar = message:sub(1, 1)
+	if firstChar ~= "/" and firstChar ~= "!" then
 		return
 	end
 
-	-- Remove the / and get command name
+	-- Remove the / or ! and get command name
 	local commandName = message:sub(2):lower():match("^%S+")
 
 	-- Safety check
@@ -104,6 +109,23 @@ local function handleCommand(player, message)
 		else
 			warn("[COMMANDS] Failed to add currency for", player.Name)
 		end
+	elseif commandName == "death" then
+		-- Kill the player
+		local character = player.Character
+		if not character then
+			warn("[COMMANDS]", player.Name, "has no character to kill")
+			return
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid then
+			warn("[COMMANDS]", player.Name, "'s character has no Humanoid")
+			return
+		end
+
+		-- Kill the player
+		humanoid.Health = 0
+		print("[COMMANDS] ✅", player.Name, "used !death command")
 	end
 end
 
