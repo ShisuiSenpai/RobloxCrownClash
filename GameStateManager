@@ -1,0 +1,66 @@
+-- Game State Manager - Client Script
+-- Place this LocalScript in StarterPlayer > StarterPlayerScripts
+-- Tracks the current game state for other scripts to use
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("[GAME STATE] Loading game state manager...")
+
+-- Wait for round status event
+local roundStatusEvent = ReplicatedStorage:WaitForChild("RoundStatus", 10)
+
+if not roundStatusEvent then
+	warn("[GAME STATE] Could not find RoundStatus event!")
+	return
+end
+
+-- Game state tracking
+local currentState = "waitingForPlayers" -- Default state
+
+-- ==================== GLOBAL API ====================
+
+-- Make game state accessible globally
+_G.GameState = {
+	-- Get current state
+	getCurrentState = function()
+		return currentState
+	end,
+
+	-- Check if in lobby (not in active round)
+	isInLobby = function()
+		return currentState == "waitingForPlayers" or currentState == "intermission"
+	end,
+
+	-- Check if in active round
+	isInRound = function()
+		return currentState == "inProgress"
+	end,
+
+	-- Check if in countdown
+	isInCountdown = function()
+		return currentState == "countdown"
+	end,
+}
+
+-- ==================== LISTEN FOR STATE CHANGES ====================
+
+roundStatusEvent.OnClientEvent:Connect(function(status, data)
+	if status == "waitingForPlayers" then
+		currentState = "waitingForPlayers"
+		print("[GAME STATE] State: Waiting for players")
+
+	elseif status == "intermission" then
+		currentState = "intermission"
+		print("[GAME STATE] State: Intermission")
+
+	elseif status == "countdown" then
+		currentState = "countdown"
+		print("[GAME STATE] State: Countdown")
+
+	elseif status == "roundStart" then
+		currentState = "inProgress"
+		print("[GAME STATE] State: Round in progress")
+	end
+end)
+
+print("[GAME STATE] Game state manager ready!")
