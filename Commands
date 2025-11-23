@@ -1,0 +1,128 @@
+-- Command System (Server Script)
+-- Place this Script in ServerScriptService
+-- Handles admin/debug commands
+
+local Players = game:GetService("Players")
+
+print("[COMMANDS] Loading command system...")
+
+-- ========================================
+-- CONFIGURATION
+-- ========================================
+
+local COMMANDS = {
+	addmoney = {
+		description = "Adds 2000 Yen to your balance",
+		amount = 2000,
+		requiresAdmin = false, -- Set to true if you want only admins to use
+	},
+	givemoney = {
+		description = "Adds 5000 Yen to your balance (admin only)",
+		amount = 5000,
+		requiresAdmin = true,
+	},
+}
+
+-- Add your admin UserIds here (optional, if requiresAdmin = true)
+local ADMIN_USERIDS = {
+	-- Example: 123456789, -- Replace with your UserId
+	-- You can find your UserId at: https://www.roblox.com/users/[YOUR_USER_ID]/profile
+}
+
+-- ========================================
+-- HELPER FUNCTIONS
+-- ========================================
+
+local function isAdmin(player)
+	-- Check if player is in admin list
+	for _, userId in ipairs(ADMIN_USERIDS) do
+		if player.UserId == userId then
+			return true
+		end
+	end
+
+	-- Check if player is game creator
+	if player.UserId == game.CreatorId then
+		return true
+	end
+
+	-- Check if player has admin role (if using group ranks)
+	-- if player:GetRankInGroup(YOUR_GROUP_ID) >= 255 then
+	-- 	return true
+	-- end
+
+	return false
+end
+
+-- (Message system removed - currency UI will update automatically)
+
+-- ========================================
+-- COMMAND HANDLER
+-- ========================================
+
+local function handleCommand(player, message)
+	-- Check if message is a command (starts with /)
+	if message:sub(1, 1) ~= "/" then
+		return
+	end
+
+	-- Remove the / and get command name
+	local commandName = message:sub(2):lower():match("^%S+")
+
+	-- Safety check
+	if not commandName or commandName == "" then
+		return
+	end
+
+	-- Check if command exists
+	local command = COMMANDS[commandName]
+	if not command then
+		return -- Not a valid command, ignore
+	end
+
+	print("[COMMANDS]", player.Name, "used command:", commandName)
+
+	-- Check admin requirement
+	if command.requiresAdmin and not isAdmin(player) then
+		warn("[COMMANDS]", player.Name, "tried to use admin command:", commandName)
+		return
+	end
+
+	-- Handle the command
+	if commandName == "addmoney" or commandName == "givemoney" then
+		-- Wait for CurrencyManager to load
+		if not _G.CurrencyManager then
+			warn("[COMMANDS] CurrencyManager not loaded yet!")
+			return
+		end
+
+		-- Add money
+		local success = _G.CurrencyManager.addCurrency(player, command.amount, "Command: /" .. commandName)
+
+		if success then
+			print("[COMMANDS] ✅", player.Name, "received", command.amount, "Yen from command")
+		else
+			warn("[COMMANDS] Failed to add currency for", player.Name)
+		end
+	end
+end
+
+-- ========================================
+-- PLAYER CONNECTION
+-- ========================================
+
+Players.PlayerAdded:Connect(function(player)
+	-- Listen to player's chat messages
+	player.Chatted:Connect(function(message)
+		handleCommand(player, message)
+	end)
+
+	print("[COMMANDS] Command listener attached to", player.Name)
+end)
+
+print("[COMMANDS] ✅ Command system ready!")
+print("[COMMANDS] Available commands:")
+for cmdName, cmdData in pairs(COMMANDS) do
+	local adminText = cmdData.requiresAdmin and " (ADMIN ONLY)" or ""
+	print("[COMMANDS]   /" .. cmdName, "-", cmdData.description, adminText)
+end
