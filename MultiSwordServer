@@ -686,31 +686,34 @@ attackRemote.OnServerEvent:Connect(function(attacker)
 				}
 				print("[SWORD] Tracked push: " .. attacker.Name .. " -> " .. targetPlayer.Name)
 
+				-- Handle ragdoll in SEPARATE THREAD so it doesn't block sword unequip
 				if removeRagdoll then
-					-- Health protection during ragdoll
-					local healthProtected = true
 					task.spawn(function()
-						while healthProtected and targetHumanoid and targetHumanoid.Parent do
-							if targetHumanoid.Health < originalHealth then
-								targetHumanoid.Health = originalHealth
+						-- Health protection during ragdoll
+						local healthProtected = true
+						task.spawn(function()
+							while healthProtected and targetHumanoid and targetHumanoid.Parent do
+								if targetHumanoid.Health < originalHealth then
+									targetHumanoid.Health = originalHealth
+								end
+								task.wait(0.2)
 							end
-							task.wait(0.2)
+						end)
+
+						-- Wait for ragdoll duration
+						task.wait(RAGDOLL_DURATION)
+
+						-- Stop health protection
+						healthProtected = false
+
+						-- Recover from ragdoll
+						removeRagdoll()
+
+						-- Final health restore
+						if targetHumanoid and targetHumanoid.Parent then
+							targetHumanoid.Health = originalHealth
 						end
 					end)
-
-					-- Wait for ragdoll duration
-					task.wait(RAGDOLL_DURATION)
-
-					-- Stop health protection
-					healthProtected = false
-
-					-- Recover from ragdoll
-					removeRagdoll()
-
-					-- Final health restore
-					if targetHumanoid and targetHumanoid.Parent then
-						targetHumanoid.Health = originalHealth
-					end
 				end
 			end
 		end
