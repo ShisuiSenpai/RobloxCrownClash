@@ -285,9 +285,9 @@ end
 
 -- Function to request attack from server
 local function requestAttack()
-	-- Check if in lobby - NO ATTACKS ALLOWED IN LOBBY
-	if _G.GameState and _G.GameState.isInLobby() then
-		return -- Silently block attacks in lobby/intermission
+	-- Check if YOU are alive in round - NO ATTACKS if dead/in lobby
+	if _G.GameState and not _G.GameState.isPlayerAliveInRound() then
+		return -- Silently block attacks if not alive in round
 	end
 
 	-- Only local player can request their own attacks

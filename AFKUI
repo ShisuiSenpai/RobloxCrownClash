@@ -1,0 +1,346 @@
+-- AFK UI System - Client Script
+-- Place this LocalScript in StarterPlayerScripts
+-- Creates AFK button that players can toggle
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Wait for AFK remotes
+local afkRemotes = ReplicatedStorage:WaitForChild("AFKRemotes", 10)
+if not afkRemotes then
+	warn("[AFK UI] AFKRemotes folder not found!")
+	return
+end
+
+local toggleAFKRemote = afkRemotes:WaitForChild("ToggleAFK", 10)
+local getAFKRemote = afkRemotes:WaitForChild("GetAFK", 10)
+
+if not toggleAFKRemote or not getAFKRemote then
+	warn("[AFK UI] AFK RemoteEvents not found!")
+	return
+end
+
+print("[AFK UI] AFK UI loading...")
+
+-- ========================================
+-- UI SETTINGS
+-- ========================================
+
+local UI_SETTINGS = {
+	-- Colors
+	BackgroundColor = Color3.fromRGB(20, 20, 25),
+	TextColor = Color3.fromRGB(244, 244, 255),
+	
+	-- Border colors based on state
+	AFKBorderColor = Color3.fromRGB(80, 255, 120), -- Green when AFK (staying in lobby)
+	ActiveBorderColor = Color3.fromRGB(255, 80, 80), -- Red when active (playing in rounds)
+	
+	-- Transparency
+	BackgroundTransparency = 0.1,
+	BorderTransparency = 0.6,
+}
+
+-- ========================================
+-- VARIABLES
+-- ========================================
+
+local isAFK = false
+local afkButton = nil
+local buttonStroke = nil
+
+-- ========================================
+-- AFK BUTTON CREATION
+-- ========================================
+
+local function createAFKButton()
+	-- Create ScreenGui for button
+	local buttonGui = Instance.new("ScreenGui")
+	buttonGui.Name = "AFKButtonUI"
+	buttonGui.ResetOnSpawn = false
+	buttonGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	buttonGui.IgnoreGuiInset = true
+	buttonGui.DisplayOrder = 100 -- Above inventory UI
+	buttonGui.Parent = playerGui
+	
+	-- Button frame (square, left middle, below inventory button)
+	local button = Instance.new("TextButton")
+	button.Name = "AFKButton"
+	button.Size = UDim2.new(0, 80, 0, 80) -- Square, same size as inventory
+	button.Position = UDim2.new(0, 10, 0.5, 140) -- Below inventory button
+	button.AnchorPoint = Vector2.new(0, 0.5) -- Center vertically
+	button.BackgroundColor3 = UI_SETTINGS.BackgroundColor
+	button.BackgroundTransparency = 1 -- Start invisible
+	button.BorderSizePixel = 0
+	button.AutoButtonColor = false
+	button.Text = "AFK Mode"
+	button.TextColor3 = UI_SETTINGS.TextColor
+	button.TextSize = 13
+	button.TextTransparency = 1 -- Start invisible
+	button.Font = Enum.Font.GothamBold
+	button.TextWrapped = true
+	button.Visible = false -- Start hidden
+	button.Parent = buttonGui
+	
+	-- Rounded corners
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = button
+	
+	-- Border (starts as red - active/playing)
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "BorderStroke"
+	stroke.Color = UI_SETTINGS.ActiveBorderColor -- Red for playing
+	stroke.Thickness = 2
+	stroke.Transparency = UI_SETTINGS.BorderTransparency
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = button
+	
+	-- Hover effects
+	button.MouseEnter:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.2), {
+			BackgroundTransparency = 0
+		}):Play()
+		TweenService:Create(stroke, TweenInfo.new(0.2), {
+			Transparency = 0.3
+		}):Play()
+	end)
+	
+	button.MouseLeave:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.2), {
+			BackgroundTransparency = UI_SETTINGS.BackgroundTransparency
+		}):Play()
+		TweenService:Create(stroke, TweenInfo.new(0.2), {
+			Transparency = UI_SETTINGS.BorderTransparency
+		}):Play()
+	end)
+	
+	-- Click handler
+	button.MouseButton1Click:Connect(function()
+		-- Toggle AFK state
+		toggleAFKRemote:FireServer()
+	end)
+	
+	return buttonGui, button, stroke
+end
+
+-- ========================================
+-- UPDATE BUTTON APPEARANCE
+-- ========================================
+
+local function updateButtonAppearance()
+	if not afkButton or not buttonStroke then return end
+	
+	if isAFK then
+		-- Green border when AFK (staying in lobby)
+		TweenService:Create(buttonStroke, TweenInfo.new(0.3), {
+			Color = UI_SETTINGS.AFKBorderColor
+		}):Play()
+		afkButton.Text = "AFK: ON"
+	else
+		-- Red border when active (playing in rounds)
+		TweenService:Create(buttonStroke, TweenInfo.new(0.3), {
+			Color = UI_SETTINGS.ActiveBorderColor
+		}):Play()
+		afkButton.Text = "AFK: OFF"
+	end
+end
+
+-- ========================================
+-- EVENT HANDLERS
+-- ========================================
+
+-- Listen for AFK state changes from server
+toggleAFKRemote.OnClientEvent:Connect(function(newAFKState)
+	isAFK = newAFKState
+	print("[AFK UI] AFK state changed to:", isAFK)
+	updateButtonAppearance()
+end)
+
+-- ========================================
+-- INITIALIZATION
+-- ========================================
+
+-- Create button
+local buttonGui, button, stroke = createAFKButton()
+afkButton = button
+buttonStroke = stroke
+
+-- Request initial AFK state from server
+task.spawn(function()
+	task.wait(1) -- Wait for server to initialize
+	local success, afkState = pcall(function()
+		return getAFKRemote:InvokeServer()
+	end)
+	
+	if success then
+		isAFK = afkState or false
+		updateButtonAppearance()
+		print("[AFK UI] Initial AFK state:", isAFK)
+	end
+end)
+
+-- ==================== ROUND STATE LISTENER (Same as inventory) ====================
+
+-- Listen for round state changes to control AFK button visibility
+local roundStatusEvent = ReplicatedStorage:WaitForChild("RoundStatus", 10)
+
+if roundStatusEvent and afkButton then
+	roundStatusEvent.OnClientEvent:Connect(function(status, data)
+		-- Hide button during countdown (freeze period)
+		if status == "countdown" then
+			-- Hide the button with fade out
+			afkButton.Visible = false
+			afkButton.BackgroundTransparency = 1
+			afkButton.TextTransparency = 1
+			if buttonStroke then
+				buttonStroke.Transparency = 1
+			end
+
+		-- When round starts, ALWAYS hide by default (no race condition)
+		elseif status == "roundStart" then
+			-- ALWAYS hide the button when round starts
+			afkButton.Visible = false
+			afkButton.BackgroundTransparency = 1
+			afkButton.TextTransparency = 1
+			if buttonStroke then
+				buttonStroke.Transparency = 1
+			end
+			print("[AFK UI] Hidden for round start")
+			
+			-- Check after a small delay if player is actually dead/AFK and should show button
+			task.delay(0.2, function()
+				if _G.GameState and not _G.GameState.isPlayerAliveInRound() then
+					-- Player is dead or AFK - show button
+					print("[AFK UI] Player not in round - Showing button")
+					afkButton.Visible = true
+
+					-- Fade in animation
+					local fadeIn = TweenService:Create(
+						afkButton,
+						TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+						{BackgroundTransparency = 0.1, TextTransparency = 0}
+					)
+					fadeIn:Play()
+
+					if buttonStroke then
+						local strokeFade = TweenService:Create(
+							buttonStroke,
+							TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+							{Transparency = 0.6}
+						)
+						strokeFade:Play()
+					end
+				end
+			end)
+
+		-- Show button in lobby with fade in
+		elseif status == "waitingForPlayers" or status == "intermission" then
+			afkButton.Visible = true
+
+			-- Fade in animation
+			local fadeIn = TweenService:Create(
+				afkButton,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{BackgroundTransparency = 0.1, TextTransparency = 0}
+			)
+			fadeIn:Play()
+
+			if buttonStroke then
+				local strokeFade = TweenService:Create(
+					buttonStroke,
+					TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+					{Transparency = 0.6}
+				)
+				strokeFade:Play()
+			end
+		end
+	end)
+
+	print("[AFK UI] Round state listener active - Button visibility controlled")
+end
+
+-- ==================== DEATH LISTENER (Show button when player dies) ====================
+
+local localPlayer = Players.LocalPlayer
+
+local function onCharacterAdded(character)
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	if humanoid then
+		humanoid.Died:Connect(function()
+			-- When player dies during round, show AFK button
+			if afkButton and _G.GameState then
+				local isRoundInProgress = _G.GameState.isInRound()
+				if isRoundInProgress then
+					print("[AFK UI] Player died - Showing AFK button")
+					
+					-- Show button
+					afkButton.Visible = true
+					
+					-- Fade in animation
+					local fadeIn = TweenService:Create(
+						afkButton,
+						TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+						{BackgroundTransparency = 0.1, TextTransparency = 0}
+					)
+					fadeIn:Play()
+					
+					if buttonStroke then
+						local strokeFade = TweenService:Create(
+							buttonStroke,
+							TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+							{Transparency = 0.6}
+						)
+						strokeFade:Play()
+					end
+				end
+			end
+		end)
+	end
+end
+
+-- Connect to character respawns
+localPlayer.CharacterAdded:Connect(onCharacterAdded)
+
+-- Handle existing character
+if localPlayer.Character then
+	onCharacterAdded(localPlayer.Character)
+end
+
+print("[AFK UI] Death listener active - Button shows when player dies")
+
+-- ==================== INITIAL STATE CHECK ====================
+
+-- Check initial game state and show button if in lobby
+task.spawn(function()
+	task.wait(0.5) -- Wait for GameState to initialize
+	if _G.GameState and _G.GameState.isInLobby() then
+		-- Show button since we're in lobby
+		afkButton.Visible = true
+		
+		local fadeIn = TweenService:Create(
+			afkButton,
+			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{BackgroundTransparency = 0.1, TextTransparency = 0}
+		)
+		fadeIn:Play()
+		
+		if buttonStroke then
+			local strokeFade = TweenService:Create(
+				buttonStroke,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{Transparency = 0.6}
+			)
+			strokeFade:Play()
+		end
+		
+		print("[AFK UI] Initial state: In lobby - Button shown")
+	else
+		print("[AFK UI] Initial state: Not in lobby - Button hidden")
+	end
+end)
+
+print("[AFK UI] ✅ AFK UI loaded!")
