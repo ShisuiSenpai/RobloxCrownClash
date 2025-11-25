@@ -73,15 +73,16 @@ local function createAFKButton()
 	button.Position = UDim2.new(0, 10, 0.5, 140) -- Below inventory button
 	button.AnchorPoint = Vector2.new(0, 0.5) -- Center vertically
 	button.BackgroundColor3 = UI_SETTINGS.BackgroundColor
-	button.BackgroundTransparency = UI_SETTINGS.BackgroundTransparency
+	button.BackgroundTransparency = 1 -- Start invisible
 	button.BorderSizePixel = 0
 	button.AutoButtonColor = false
 	button.Text = "AFK Mode"
 	button.TextColor3 = UI_SETTINGS.TextColor
 	button.TextSize = 13
-	button.TextTransparency = 0
+	button.TextTransparency = 1 -- Start invisible
 	button.Font = Enum.Font.GothamBold
 	button.TextWrapped = true
+	button.Visible = false -- Start hidden
 	button.Parent = buttonGui
 	
 	-- Rounded corners
@@ -307,5 +308,36 @@ if localPlayer.Character then
 end
 
 print("[AFK UI] Death listener active - Button shows when player dies")
+
+-- ==================== INITIAL STATE CHECK ====================
+
+-- Check initial game state and show button if in lobby
+task.spawn(function()
+	task.wait(0.5) -- Wait for GameState to initialize
+	if _G.GameState and _G.GameState.isInLobby() then
+		-- Show button since we're in lobby
+		afkButton.Visible = true
+		
+		local fadeIn = TweenService:Create(
+			afkButton,
+			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{BackgroundTransparency = 0.1, TextTransparency = 0}
+		)
+		fadeIn:Play()
+		
+		if buttonStroke then
+			local strokeFade = TweenService:Create(
+				buttonStroke,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{Transparency = 0.6}
+			)
+			strokeFade:Play()
+		end
+		
+		print("[AFK UI] Initial state: In lobby - Button shown")
+	else
+		print("[AFK UI] Initial state: Not in lobby - Button hidden")
+	end
+end)
 
 print("[AFK UI] ✅ AFK UI loaded!")

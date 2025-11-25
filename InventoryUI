@@ -1002,3 +1002,35 @@ if player.Character then
 end
 
 print("[INVENTORY] Death listener active - Button shows when player dies")
+
+-- ==================== INITIAL STATE CHECK ====================
+
+-- Check initial game state and show button if in lobby
+task.spawn(function()
+	task.wait(0.5) -- Wait for GameState to initialize
+	if _G.GameState and _G.GameState.isInLobby() then
+		-- Show button since we're in lobby
+		inventoryButton.Visible = true
+		
+		local fadeIn = TweenService:Create(
+			inventoryButton,
+			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{BackgroundTransparency = 0.1, TextTransparency = 0}
+		)
+		fadeIn:Play()
+		
+		local buttonStroke = inventoryButton:FindFirstChild("UIStroke")
+		if buttonStroke then
+			local strokeFade = TweenService:Create(
+				buttonStroke,
+				TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{Transparency = 0.6}
+			)
+			strokeFade:Play()
+		end
+		
+		print("[INVENTORY] Initial state: In lobby - Button shown")
+	else
+		print("[INVENTORY] Initial state: Not in lobby - Button hidden")
+	end
+end)
