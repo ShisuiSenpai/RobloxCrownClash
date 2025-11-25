@@ -535,8 +535,9 @@ end
 
 -- Toggle inventory visibility
 local function toggleInventory()
-	-- Block inventory if NOT in lobby (only allow in lobby/intermission/waiting)
-	if _G.GameState and not _G.GameState.isInLobby() then
+	-- Block inventory ONLY if YOU are alive and in the round
+	-- (If you're dead in lobby, you CAN access inventory even if round is ongoing)
+	if _G.GameState and _G.GameState.isPlayerAliveInRound() then
 		-- Force close if somehow open
 		if isInventoryOpen and inventoryGui then
 			isInventoryOpen = false
@@ -546,7 +547,7 @@ local function toggleInventory()
 				inventoryGui = nil
 			end
 		end
-		return -- Block opening inventory when not in lobby
+		return -- Block opening inventory only when YOU are alive in round
 	end
 	-- Request latest inventory from server
 	local success, inventory = pcall(function()
