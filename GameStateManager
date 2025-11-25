@@ -53,20 +53,49 @@ _G.GameState = {
 roundStatusEvent.OnClientEvent:Connect(function(status, data)
 	if status == "waitingForPlayers" then
 		currentState = "waitingForPlayers"
+		playerIsAliveInRound = false -- Not in round
 		print("[GAME STATE] State: Waiting for players")
 
 	elseif status == "intermission" then
 		currentState = "intermission"
+		playerIsAliveInRound = false -- Not in round
 		print("[GAME STATE] State: Intermission")
 
 	elseif status == "countdown" then
 		currentState = "countdown"
+		playerIsAliveInRound = false -- Not started yet
 		print("[GAME STATE] State: Countdown")
 
 	elseif status == "roundStart" then
 		currentState = "inProgress"
-		print("[GAME STATE] State: Round in progress")
+		-- Only mark as alive if we're actually spawning in the round (not AFK, not dead)
+		playerIsAliveInRound = true
+		print("[GAME STATE] State: Round in progress - Player alive in round")
 	end
 end)
+
+-- ==================== TRACK PLAYER DEATH ====================
+
+-- Listen for player death to update alive state
+local player = game:GetService("Players").LocalPlayer
+
+local function onCharacterAdded(character)
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	if humanoid then
+		humanoid.Died:Connect(function()
+			-- Mark player as dead (no longer in active round)
+			playerIsAliveInRound = false
+			print("[GAME STATE] Player died - No longer in active round")
+		end)
+	end
+end
+
+-- Handle character respawns
+player.CharacterAdded:Connect(onCharacterAdded)
+
+-- Handle existing character
+if player.Character then
+	onCharacterAdded(player.Character)
+end
 
 print("[GAME STATE] Game state manager ready!")
