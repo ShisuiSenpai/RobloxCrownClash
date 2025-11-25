@@ -16,6 +16,7 @@ end
 
 -- Game state tracking
 local currentState = "waitingForPlayers" -- Default state
+local playerIsAliveInRound = false -- Tracks if THIS player is alive and fighting in the round
 
 -- ==================== GLOBAL API ====================
 
@@ -31,9 +32,14 @@ _G.GameState = {
 		return currentState == "waitingForPlayers" or currentState == "intermission"
 	end,
 
-	-- Check if in active round
+	-- Check if in active round (GLOBAL - any round happening)
 	isInRound = function()
 		return currentState == "inProgress"
+	end,
+
+	-- Check if THIS PLAYER is alive and in the round (NEW)
+	isPlayerAliveInRound = function()
+		return playerIsAliveInRound
 	end,
 
 	-- Check if in countdown
