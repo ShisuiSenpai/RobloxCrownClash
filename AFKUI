@@ -1,0 +1,185 @@
+-- AFK UI System - Client Script
+-- Place this LocalScript in StarterPlayerScripts
+-- Creates AFK button that players can toggle
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Wait for AFK remotes
+local afkRemotes = ReplicatedStorage:WaitForChild("AFKRemotes", 10)
+if not afkRemotes then
+	warn("[AFK UI] AFKRemotes folder not found!")
+	return
+end
+
+local toggleAFKRemote = afkRemotes:WaitForChild("ToggleAFK", 10)
+local getAFKRemote = afkRemotes:WaitForChild("GetAFK", 10)
+
+if not toggleAFKRemote or not getAFKRemote then
+	warn("[AFK UI] AFK RemoteEvents not found!")
+	return
+end
+
+print("[AFK UI] AFK UI loading...")
+
+-- ========================================
+-- UI SETTINGS
+-- ========================================
+
+local UI_SETTINGS = {
+	-- Colors
+	BackgroundColor = Color3.fromRGB(20, 20, 25),
+	TextColor = Color3.fromRGB(244, 244, 255),
+	
+	-- Border colors based on state
+	AFKBorderColor = Color3.fromRGB(255, 80, 80), -- Red when AFK
+	ActiveBorderColor = Color3.fromRGB(80, 255, 120), -- Green when active
+	
+	-- Transparency
+	BackgroundTransparency = 0.1,
+	BorderTransparency = 0.6,
+}
+
+-- ========================================
+-- VARIABLES
+-- ========================================
+
+local isAFK = false
+local afkButton = nil
+local buttonStroke = nil
+
+-- ========================================
+-- AFK BUTTON CREATION
+-- ========================================
+
+local function createAFKButton()
+	-- Create ScreenGui for button
+	local buttonGui = Instance.new("ScreenGui")
+	buttonGui.Name = "AFKButtonUI"
+	buttonGui.ResetOnSpawn = false
+	buttonGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	buttonGui.IgnoreGuiInset = true
+	buttonGui.DisplayOrder = 100 -- Above inventory UI
+	buttonGui.Parent = playerGui
+	
+	-- Button frame (square, left middle, below inventory button)
+	local button = Instance.new("TextButton")
+	button.Name = "AFKButton"
+	button.Size = UDim2.new(0, 80, 0, 80) -- Square, same size as inventory
+	button.Position = UDim2.new(0, 10, 0.5, 140) -- Below inventory button
+	button.AnchorPoint = Vector2.new(0, 0.5) -- Center vertically
+	button.BackgroundColor3 = UI_SETTINGS.BackgroundColor
+	button.BackgroundTransparency = UI_SETTINGS.BackgroundTransparency
+	button.BorderSizePixel = 0
+	button.AutoButtonColor = false
+	button.Text = "AFK Mode"
+	button.TextColor3 = UI_SETTINGS.TextColor
+	button.TextSize = 13
+	button.TextTransparency = 0
+	button.Font = Enum.Font.GothamBold
+	button.TextWrapped = true
+	button.Parent = buttonGui
+	
+	-- Rounded corners
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = button
+	
+	-- Border (starts as green - active)
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "BorderStroke"
+	stroke.Color = UI_SETTINGS.ActiveBorderColor
+	stroke.Thickness = 2
+	stroke.Transparency = UI_SETTINGS.BorderTransparency
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = button
+	
+	-- Hover effects
+	button.MouseEnter:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.2), {
+			BackgroundTransparency = 0
+		}):Play()
+		TweenService:Create(stroke, TweenInfo.new(0.2), {
+			Transparency = 0.3
+		}):Play()
+	end)
+	
+	button.MouseLeave:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.2), {
+			BackgroundTransparency = UI_SETTINGS.BackgroundTransparency
+		}):Play()
+		TweenService:Create(stroke, TweenInfo.new(0.2), {
+			Transparency = UI_SETTINGS.BorderTransparency
+		}):Play()
+	end)
+	
+	-- Click handler
+	button.MouseButton1Click:Connect(function()
+		-- Toggle AFK state
+		toggleAFKRemote:FireServer()
+	end)
+	
+	return buttonGui, button, stroke
+end
+
+-- ========================================
+-- UPDATE BUTTON APPEARANCE
+-- ========================================
+
+local function updateButtonAppearance()
+	if not afkButton or not buttonStroke then return end
+	
+	if isAFK then
+		-- Red border when AFK
+		TweenService:Create(buttonStroke, TweenInfo.new(0.3), {
+			Color = UI_SETTINGS.AFKBorderColor
+		}):Play()
+		afkButton.Text = "AFK: ON"
+	else
+		-- Green border when active
+		TweenService:Create(buttonStroke, TweenInfo.new(0.3), {
+			Color = UI_SETTINGS.ActiveBorderColor
+		}):Play()
+		afkButton.Text = "AFK: OFF"
+	end
+end
+
+-- ========================================
+-- EVENT HANDLERS
+-- ========================================
+
+-- Listen for AFK state changes from server
+toggleAFKRemote.OnClientEvent:Connect(function(newAFKState)
+	isAFK = newAFKState
+	print("[AFK UI] AFK state changed to:", isAFK)
+	updateButtonAppearance()
+end)
+
+-- ========================================
+-- INITIALIZATION
+-- ========================================
+
+-- Create button
+local buttonGui, button, stroke = createAFKButton()
+afkButton = button
+buttonStroke = stroke
+
+-- Request initial AFK state from server
+task.spawn(function()
+	task.wait(1) -- Wait for server to initialize
+	local success, afkState = pcall(function()
+		return getAFKRemote:InvokeServer()
+	end)
+	
+	if success then
+		isAFK = afkState or false
+		updateButtonAppearance()
+		print("[AFK UI] Initial AFK state:", isAFK)
+	end
+end)
+
+print("[AFK UI] ✅ AFK UI loaded!")

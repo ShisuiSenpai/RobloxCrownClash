@@ -100,6 +100,18 @@ local function getRandomSpawn(spawnCache)
 	return spawnCache[math.random(1, #spawnCache)]
 end
 
+-- Helper: Count non-AFK players
+local function countActivePlayers()
+	local count = 0
+	for _, player in pairs(Players:GetPlayers()) do
+		local isAFK = _G.AFKSystem and _G.AFKSystem.isPlayerAFK(player)
+		if not isAFK then
+			count = count + 1
+		end
+	end
+	return count
+end
+
 -- Helper: Spawn player at location
 -- Track which spawns are currently in use (to avoid duplicate spawns)
 local usedSpawns = {}
@@ -309,8 +321,8 @@ local function onPlayerWin(player)
 
 	stateLock = false
 
-	-- Check if enough players
-	if #Players:GetPlayers() < MINIMUM_PLAYERS then
+	-- Check if enough active (non-AFK) players
+	if countActivePlayers() < MINIMUM_PLAYERS then
 		gameState = "WaitingForPlayers"
 		roundStatusEvent:FireAllClients("waitingForPlayers", 0)
 	else
@@ -341,9 +353,19 @@ function startNewRound()
 		_G.LavaRisingControl.resetLava()
 	end
 
-	-- Spawn and freeze all players
+	-- Spawn and freeze all NON-AFK players
 	for _, player in pairs(Players:GetPlayers()) do
-		if player.Character then
+		-- Skip AFK players
+		local isAFK = _G.AFKSystem and _G.AFKSystem.isPlayerAFK(player)
+		if isAFK then
+			print("[ROUND] Skipping AFK player:", player.Name)
+			-- Keep them in lobby
+			if player.Character then
+				spawnPlayerAt(player, cachedLobbySpawns)
+			end
+			playersAlive[player] = false
+		elseif player.Character then
+			-- Spawn active players in pyramid
 			spawnPlayerAt(player, cachedPyramidSpawns)
 			playersAlive[player] = true
 			freezePlayer(player)
@@ -445,9 +467,9 @@ local function onPlayerDeath(player)
 
 		task.wait(INTERMISSION_TIME)
 
-		-- Check if we still have enough players
-		local playerCount = #Players:GetPlayers()
-		if playerCount >= MINIMUM_PLAYERS then
+		-- Check if we still have enough active (non-AFK) players
+		local activePlayerCount = countActivePlayers()
+		if activePlayerCount >= MINIMUM_PLAYERS then
 			startNewRound()
 		else
 			gameState = "WaitingForPlayers"
@@ -498,8 +520,8 @@ Players.PlayerAdded:Connect(function(player)
 			roundStatusEvent:FireClient(player, "intermission", INTERMISSION_TIME)
 		end
 
-		-- Check if can start
-		if gameState == "WaitingForPlayers" and #Players:GetPlayers() >= MINIMUM_PLAYERS then
+		-- Check if can start (count only non-AFK players)
+		if gameState == "WaitingForPlayers" and countActivePlayers() >= MINIMUM_PLAYERS then
 			gameState = "Intermission"
 			roundStatusEvent:FireAllClients("intermission", 5)
 			task.wait(5)
@@ -519,10 +541,10 @@ Players.PlayerRemoving:Connect(function(player)
 		updateKingDisplay(nil, 0)
 	end
 
-	-- Check player count
+	-- Check active (non-AFK) player count
 	task.wait(0.1) -- Small delay for accurate count
-	if gameState == "InProgress" and #Players:GetPlayers() < MINIMUM_PLAYERS then
-		print("[ROUND SYSTEM] Not enough players, ending round")
+	if gameState == "InProgress" and countActivePlayers() < MINIMUM_PLAYERS then
+		print("[ROUND SYSTEM] Not enough active players, ending round")
 		gameState = "WaitingForPlayers"
 		roundStatusEvent:FireAllClients("waitingForPlayers", 0)
 	end
@@ -539,12 +561,12 @@ end
 task.spawn(function()
 	debugPrint("Main game loop started")
 
-	-- Initial state check
-	if #Players:GetPlayers() < MINIMUM_PLAYERS then
+	-- Initial state check (count only non-AFK players)
+	if countActivePlayers() < MINIMUM_PLAYERS then
 		gameState = "WaitingForPlayers"
 		roundStatusEvent:FireAllClients("waitingForPlayers", 0)
 
-		while #Players:GetPlayers() < MINIMUM_PLAYERS do
+		while countActivePlayers() < MINIMUM_PLAYERS do
 			task.wait(1)
 		end
 
@@ -615,7 +637,7 @@ task.spawn(function()
 				end
 			end
 		elseif gameState == "WaitingForPlayers" then
-			if #Players:GetPlayers() >= MINIMUM_PLAYERS then
+			if countActivePlayers() >= MINIMUM_PLAYERS then
 				gameState = "Intermission"
 				roundStatusEvent:FireAllClients("intermission", 5)
 				task.wait(5)

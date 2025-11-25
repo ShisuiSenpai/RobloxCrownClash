@@ -1,0 +1,121 @@
+-- AFK System - Server Script
+-- Place this in ServerScriptService
+-- Manages AFK state for players and prevents them from joining rounds
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("[AFK] AFK System loading...")
+
+-- ========================================
+-- CONFIGURATION
+-- ========================================
+
+-- Track AFK players
+local afkPlayers = {} -- [UserId] = true/false
+
+-- ========================================
+-- REMOTE EVENTS
+-- ========================================
+
+-- Create folder for AFK remotes
+local afkRemotes = ReplicatedStorage:FindFirstChild("AFKRemotes")
+if not afkRemotes then
+	afkRemotes = Instance.new("Folder")
+	afkRemotes.Name = "AFKRemotes"
+	afkRemotes.Parent = ReplicatedStorage
+end
+
+-- Toggle AFK state
+local toggleAFKRemote = afkRemotes:FindFirstChild("ToggleAFK")
+if not toggleAFKRemote then
+	toggleAFKRemote = Instance.new("RemoteEvent")
+	toggleAFKRemote.Name = "ToggleAFK"
+	toggleAFKRemote.Parent = afkRemotes
+end
+
+-- Get AFK state
+local getAFKRemote = afkRemotes:FindFirstChild("GetAFK")
+if not getAFKRemote then
+	getAFKRemote = Instance.new("RemoteFunction")
+	getAFKRemote.Name = "GetAFK"
+	getAFKRemote.Parent = afkRemotes
+end
+
+-- ========================================
+-- AFK FUNCTIONS
+-- ========================================
+
+-- Check if player is AFK
+local function isPlayerAFK(player)
+	return afkPlayers[player.UserId] == true
+end
+
+-- Set player AFK state
+local function setPlayerAFK(player, isAFK)
+	local userId = player.UserId
+	local wasAFK = afkPlayers[userId]
+	
+	afkPlayers[userId] = isAFK
+	
+	if isAFK then
+		print("[AFK]", player.Name, "is now AFK (won't join rounds)")
+	else
+		print("[AFK]", player.Name, "is no longer AFK (will join rounds)")
+	end
+	
+	-- Notify client of state change
+	toggleAFKRemote:FireClient(player, isAFK)
+	
+	return true
+end
+
+-- ========================================
+-- REMOTE HANDLERS
+-- ========================================
+
+-- Handle AFK toggle requests from client
+toggleAFKRemote.OnServerEvent:Connect(function(player)
+	local currentState = afkPlayers[player.UserId] or false
+	setPlayerAFK(player, not currentState)
+end)
+
+-- Handle AFK state requests
+getAFKRemote.OnServerInvoke = function(player)
+	return afkPlayers[player.UserId] or false
+end
+
+-- ========================================
+-- PLAYER MANAGEMENT
+-- ========================================
+
+-- Initialize player
+Players.PlayerAdded:Connect(function(player)
+	-- Start as not AFK
+	afkPlayers[player.UserId] = false
+	print("[AFK] Initialized", player.Name, "as not AFK")
+end)
+
+-- Clean up when player leaves
+Players.PlayerRemoving:Connect(function(player)
+	afkPlayers[player.UserId] = nil
+end)
+
+-- Initialize existing players
+for _, player in pairs(Players:GetPlayers()) do
+	afkPlayers[player.UserId] = false
+end
+
+-- ========================================
+-- GLOBAL API (for RoundSystemServer)
+-- ========================================
+
+_G.AFKSystem = {
+	isPlayerAFK = isPlayerAFK,
+	setPlayerAFK = setPlayerAFK,
+}
+
+print("========================================")
+print("AFK System Ready!")
+print("Players can toggle AFK to stay in lobby")
+print("========================================")
