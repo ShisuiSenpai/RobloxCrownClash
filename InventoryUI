@@ -885,49 +885,53 @@ if roundStatusEvent and inventoryButton then
 				buttonStroke.Transparency = 1
 			end
 
-		-- When round starts, only close inventory if player is alive in round
+		-- When round starts, ALWAYS hide by default (no race condition)
 		elseif status == "roundStart" then
-			-- Check if THIS PLAYER is alive in round
-			if _G.GameState and _G.GameState.isPlayerAliveInRound() then
-				-- Force close inventory if open (only when alive in round)
-				if isInventoryOpen and inventoryGui then
-					isInventoryOpen = false
-					inventoryGui.Enabled = false
-					if inventoryGui.Parent then
-						inventoryGui:Destroy()
-						inventoryGui = nil
-					end
-					print("[INVENTORY] Closed - Player alive in round")
+			-- Force close inventory if open
+			if isInventoryOpen and inventoryGui then
+				isInventoryOpen = false
+				inventoryGui.Enabled = false
+				if inventoryGui.Parent then
+					inventoryGui:Destroy()
+					inventoryGui = nil
 				end
-
-				-- Hide the button with fade out
-				inventoryButton.Visible = false
-				inventoryButton.BackgroundTransparency = 1
-				inventoryButton.TextTransparency = 1
-				if buttonStroke then
-					buttonStroke.Transparency = 1
-				end
-			else
-				-- Player is dead or AFK - show button
-				inventoryButton.Visible = true
-
-				-- Fade in animation
-				local fadeIn = TweenService:Create(
-					inventoryButton,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-					{BackgroundTransparency = 0.1, TextTransparency = 0}
-				)
-				fadeIn:Play()
-
-				if buttonStroke then
-					local strokeFade = TweenService:Create(
-						buttonStroke,
-						TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-						{Transparency = 0.6}
-					)
-					strokeFade:Play()
-				end
+				print("[INVENTORY] Closed for round start")
 			end
+
+			-- ALWAYS hide the button when round starts
+			inventoryButton.Visible = false
+			inventoryButton.BackgroundTransparency = 1
+			inventoryButton.TextTransparency = 1
+			if buttonStroke then
+				buttonStroke.Transparency = 1
+			end
+			print("[INVENTORY] Hidden for round start")
+			
+			-- Check after a small delay if player is actually dead/AFK and should show button
+			task.delay(0.2, function()
+				if _G.GameState and not _G.GameState.isPlayerAliveInRound() then
+					-- Player is dead or AFK - show button
+					print("[INVENTORY] Player not in round - Showing button")
+					inventoryButton.Visible = true
+
+					-- Fade in animation
+					local fadeIn = TweenService:Create(
+						inventoryButton,
+						TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+						{BackgroundTransparency = 0.1, TextTransparency = 0}
+					)
+					fadeIn:Play()
+
+					if buttonStroke then
+						local strokeFade = TweenService:Create(
+							buttonStroke,
+							TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+							{Transparency = 0.6}
+						)
+						strokeFade:Play()
+					end
+				end
+			end)
 
 		-- Show button in lobby with fade in
 		elseif status == "waitingForPlayers" or status == "intermission" then
