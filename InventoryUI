@@ -535,9 +535,8 @@ end
 
 -- Toggle inventory visibility
 local function toggleInventory()
-	-- Block inventory ONLY if YOU are alive and in the round
-	-- (If you're dead in lobby, you CAN access inventory even if round is ongoing)
-	if _G.GameState and _G.GameState.isPlayerAliveInRound() then
+	-- Block inventory if NOT in lobby (only allow in lobby/intermission/waiting)
+	if _G.GameState and not _G.GameState.isInLobby() then
 		-- Force close if somehow open
 		if isInventoryOpen and inventoryGui then
 			isInventoryOpen = false
@@ -547,7 +546,7 @@ local function toggleInventory()
 				inventoryGui = nil
 			end
 		end
-		return -- Block opening inventory only when YOU are alive in round
+		return -- Block opening inventory when not in lobby
 	end
 	-- Request latest inventory from server
 	local success, inventory = pcall(function()
@@ -864,8 +863,8 @@ if roundStatusEvent and inventoryButton then
 	local buttonStroke = inventoryButton:FindFirstChild("UIStroke")
 
 	roundStatusEvent.OnClientEvent:Connect(function(status, data)
-		-- Hide button during countdown (freeze period)
-		if status == "countdown" then
+		-- Hide button during countdown and rounds
+		if status == "countdown" or status == "roundStart" then
 			-- Force close inventory if open
 			if isInventoryOpen and inventoryGui then
 				isInventoryOpen = false
@@ -874,7 +873,7 @@ if roundStatusEvent and inventoryButton then
 					inventoryGui:Destroy()
 					inventoryGui = nil
 				end
-				print("[INVENTORY] Closed for countdown")
+				print("[INVENTORY] Closed for round")
 			end
 
 			-- Hide the button with fade out
@@ -883,50 +882,6 @@ if roundStatusEvent and inventoryButton then
 			inventoryButton.TextTransparency = 1
 			if buttonStroke then
 				buttonStroke.Transparency = 1
-			end
-
-		-- When round starts, only close inventory if player is alive in round
-		elseif status == "roundStart" then
-			-- Check if THIS PLAYER is alive in round
-			if _G.GameState and _G.GameState.isPlayerAliveInRound() then
-				-- Force close inventory if open (only when alive in round)
-				if isInventoryOpen and inventoryGui then
-					isInventoryOpen = false
-					inventoryGui.Enabled = false
-					if inventoryGui.Parent then
-						inventoryGui:Destroy()
-						inventoryGui = nil
-					end
-					print("[INVENTORY] Closed - Player alive in round")
-				end
-
-				-- Hide the button with fade out
-				inventoryButton.Visible = false
-				inventoryButton.BackgroundTransparency = 1
-				inventoryButton.TextTransparency = 1
-				if buttonStroke then
-					buttonStroke.Transparency = 1
-				end
-			else
-				-- Player is dead or AFK - show button
-				inventoryButton.Visible = true
-
-				-- Fade in animation
-				local fadeIn = TweenService:Create(
-					inventoryButton,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-					{BackgroundTransparency = 0.1, TextTransparency = 0}
-				)
-				fadeIn:Play()
-
-				if buttonStroke then
-					local strokeFade = TweenService:Create(
-						buttonStroke,
-						TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-						{Transparency = 0.6}
-					)
-					strokeFade:Play()
-				end
 			end
 
 		-- Show button in lobby with fade in
@@ -954,51 +909,3 @@ if roundStatusEvent and inventoryButton then
 
 	print("[INVENTORY] Round state listener active - Button visibility controlled")
 end
-
--- ==================== DEATH LISTENER (Show button when player dies) ====================
-
-local function onCharacterAdded(character)
-	local humanoid = character:WaitForChild("Humanoid", 5)
-	if humanoid then
-		humanoid.Died:Connect(function()
-			-- When player dies during round, show inventory button
-			if inventoryButton and _G.GameState then
-				local isRoundInProgress = _G.GameState.isInRound()
-				if isRoundInProgress then
-					print("[INVENTORY] Player died - Showing inventory button")
-					
-					-- Show button
-					inventoryButton.Visible = true
-					
-					-- Fade in animation
-					local fadeIn = TweenService:Create(
-						inventoryButton,
-						TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-						{BackgroundTransparency = 0.1, TextTransparency = 0}
-					)
-					fadeIn:Play()
-					
-					local buttonStroke = inventoryButton:FindFirstChild("UIStroke")
-					if buttonStroke then
-						local strokeFade = TweenService:Create(
-							buttonStroke,
-							TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-							{Transparency = 0.6}
-						)
-						strokeFade:Play()
-					end
-				end
-			end
-		end)
-	end
-end
-
--- Connect to character respawns
-player.CharacterAdded:Connect(onCharacterAdded)
-
--- Handle existing character
-if player.Character then
-	onCharacterAdded(player.Character)
-end
-
-print("[INVENTORY] Death listener active - Button shows when player dies")

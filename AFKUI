@@ -36,8 +36,8 @@ local UI_SETTINGS = {
 	TextColor = Color3.fromRGB(244, 244, 255),
 	
 	-- Border colors based on state
-	AFKBorderColor = Color3.fromRGB(255, 80, 80), -- Red when AFK
-	ActiveBorderColor = Color3.fromRGB(80, 255, 120), -- Green when active
+	AFKBorderColor = Color3.fromRGB(80, 255, 120), -- Green when AFK (staying in lobby)
+	ActiveBorderColor = Color3.fromRGB(255, 80, 80), -- Red when active (playing in rounds)
 	
 	-- Transparency
 	BackgroundTransparency = 0.1,
@@ -89,10 +89,10 @@ local function createAFKButton()
 	corner.CornerRadius = UDim.new(0, 10)
 	corner.Parent = button
 	
-	-- Border (starts as green - active)
+	-- Border (starts as red - active/playing)
 	local stroke = Instance.new("UIStroke")
 	stroke.Name = "BorderStroke"
-	stroke.Color = UI_SETTINGS.ActiveBorderColor
+	stroke.Color = UI_SETTINGS.ActiveBorderColor -- Red for playing
 	stroke.Thickness = 2
 	stroke.Transparency = UI_SETTINGS.BorderTransparency
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -134,13 +134,13 @@ local function updateButtonAppearance()
 	if not afkButton or not buttonStroke then return end
 	
 	if isAFK then
-		-- Red border when AFK
+		-- Green border when AFK (staying in lobby)
 		TweenService:Create(buttonStroke, TweenInfo.new(0.3), {
 			Color = UI_SETTINGS.AFKBorderColor
 		}):Play()
 		afkButton.Text = "AFK: ON"
 	else
-		-- Green border when active
+		-- Red border when active (playing in rounds)
 		TweenService:Create(buttonStroke, TweenInfo.new(0.3), {
 			Color = UI_SETTINGS.ActiveBorderColor
 		}):Play()
