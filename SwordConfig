@@ -13,6 +13,13 @@
 local SwordConfig = {}
 
 -- ========================================
+-- GLOBAL SWORD SETTINGS (Applied to ALL swords)
+-- ========================================
+
+SwordConfig.GlobalAttackRange = 10  -- Hit detection range for all swords
+SwordConfig.GlobalPushForce = 50    -- Push force for all swords
+
+-- ========================================
 -- RARITY SYSTEM
 -- ========================================
 
@@ -78,8 +85,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.5,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 50, -- Push force (was Damage)
-			AttackRange = 10, -- Hit detection range
 		},
 
 		Keybind = Enum.KeyCode.One,
@@ -102,8 +107,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 50,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Two,
@@ -126,8 +129,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 50,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Three,
@@ -151,8 +152,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 52,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Four,
@@ -175,8 +174,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 52,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Five,
@@ -200,8 +197,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 54,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Six,
@@ -224,8 +219,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 54,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Seven,
@@ -249,8 +242,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 56,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Eight,
@@ -273,8 +264,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.4,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 56,
-			AttackRange = 10,
 		},
 
 		Keybind = Enum.KeyCode.Nine,
@@ -298,8 +287,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.3,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 58,
-			AttackRange = 12,
 		},
 
 		Keybind = Enum.KeyCode.Zero,
@@ -322,8 +309,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.3,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 58,
-			AttackRange = 12,
 		},
 
 		Keybind = nil,
@@ -347,8 +332,6 @@ SwordConfig.Swords = {
 			AttackDuration = 0.45,
 			AttackCooldown = 0.3,
 			AnimationId = "rbxassetid://102835293832677",
-			PushForce = 60, -- Strongest push!
-			AttackRange = 12,
 		},
 
 		Keybind = nil,

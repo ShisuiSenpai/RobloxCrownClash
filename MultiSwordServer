@@ -653,7 +653,7 @@ attackRemote.OnServerEvent:Connect(function(attacker)
 	end
 
 	-- HITBOX DETECTION: Find target to push
-	local targetPlayer, targetDistance = findNearbyTarget(attackerCharacter, config.Attack.AttackRange)
+	local targetPlayer, targetDistance = findNearbyTarget(attackerCharacter, SwordConfig.GlobalAttackRange)
 
 	if targetPlayer and targetPlayer.Character then
 		local targetCharacter = targetPlayer.Character
@@ -672,8 +672,8 @@ attackRemote.OnServerEvent:Connect(function(attacker)
 				local pushDirection = (targetRoot.Position - attackerRoot.Position).Unit
 				pushDirection = (pushDirection + Vector3.new(0, 0.3, 0)).Unit
 
-				-- Get push force from sword config
-				local pushForce = config.Attack.PushForce or 50
+				-- Get push force from global config
+				local pushForce = SwordConfig.GlobalPushForce
 
 				-- Apply push and ragdoll
 				applyPushForce(targetCharacter, pushDirection, pushForce)
