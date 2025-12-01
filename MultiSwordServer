@@ -629,6 +629,76 @@ local function initializePlayer(player)
 end
 
 -- ========================================
+-- HIT PROCESSING FUNCTION (Must be defined before attack handler)
+-- ========================================
+
+local function processHit(targetPlayer, attacker, attackerCharacter)
+	if not targetPlayer or not targetPlayer.Character then return end
+	
+	local targetCharacter = targetPlayer.Character
+	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+	local targetHumanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
+
+	if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
+		print("[SWORD] " .. attacker.Name .. " hit " .. targetPlayer.Name .. " with sword!")
+
+		-- Store original health
+		local originalHealth = targetHumanoid.Health
+
+		-- Calculate push direction with upward arc
+		local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
+		if attackerRoot then
+			local pushDirection = (targetRoot.Position - attackerRoot.Position).Unit
+			pushDirection = (pushDirection + Vector3.new(0, 0.3, 0)).Unit
+
+			-- Get push force from global config
+			local pushForce = SwordConfig.GlobalPushForce
+
+			-- Apply push and ragdoll
+			applyPushForce(targetCharacter, pushDirection, pushForce)
+			local removeRagdoll = createRagdoll(targetCharacter)
+
+			-- Track this push for kill attribution
+			RECENT_PUSHES[targetPlayer.UserId] = {
+				pusher = attacker,
+				time = tick()
+			}
+			print("[SWORD] Tracked push: " .. attacker.Name .. " -> " .. targetPlayer.Name)
+
+			-- Handle ragdoll in SEPARATE THREAD so it doesn't block sword unequip
+			if removeRagdoll then
+				task.spawn(function()
+					-- Health protection during ragdoll
+					local healthProtected = true
+					task.spawn(function()
+						while healthProtected and targetHumanoid and targetHumanoid.Parent do
+							if targetHumanoid.Health < originalHealth then
+								targetHumanoid.Health = originalHealth
+							end
+							task.wait(0.2)
+						end
+					end)
+
+					-- Wait for ragdoll duration
+					task.wait(RAGDOLL_DURATION)
+
+					-- Stop health protection
+					healthProtected = false
+
+					-- Recover from ragdoll
+					removeRagdoll()
+
+					-- Final health restore
+					if targetHumanoid and targetHumanoid.Parent then
+						targetHumanoid.Health = originalHealth
+					end
+				end)
+			end
+		end
+	end
+end
+
+-- ========================================
 -- ATTACK HANDLING (with PUSH instead of damage!)
 -- ========================================
 
@@ -710,76 +780,6 @@ attackRemote.OnServerEvent:Connect(function(attacker)
 	-- Mark attack as complete
 	playerData.isAttacking = false
 end)
-
--- ========================================
--- HIT PROCESSING (Extracted for cleaner multi-sampling)
--- ========================================
-
-local function processHit(targetPlayer, attacker, attackerCharacter)
-	if not targetPlayer or not targetPlayer.Character then return end
-	
-	local targetCharacter = targetPlayer.Character
-	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-	local targetHumanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
-
-	if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
-		print("[SWORD] " .. attacker.Name .. " hit " .. targetPlayer.Name .. " with sword!")
-
-		-- Store original health
-		local originalHealth = targetHumanoid.Health
-
-		-- Calculate push direction with upward arc
-		local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
-		if attackerRoot then
-			local pushDirection = (targetRoot.Position - attackerRoot.Position).Unit
-			pushDirection = (pushDirection + Vector3.new(0, 0.3, 0)).Unit
-
-			-- Get push force from global config
-			local pushForce = SwordConfig.GlobalPushForce
-
-			-- Apply push and ragdoll
-			applyPushForce(targetCharacter, pushDirection, pushForce)
-			local removeRagdoll = createRagdoll(targetCharacter)
-
-			-- Track this push for kill attribution
-			RECENT_PUSHES[targetPlayer.UserId] = {
-				pusher = attacker,
-				time = tick()
-			}
-			print("[SWORD] Tracked push: " .. attacker.Name .. " -> " .. targetPlayer.Name)
-
-			-- Handle ragdoll in SEPARATE THREAD so it doesn't block sword unequip
-			if removeRagdoll then
-				task.spawn(function()
-					-- Health protection during ragdoll
-					local healthProtected = true
-					task.spawn(function()
-						while healthProtected and targetHumanoid and targetHumanoid.Parent do
-							if targetHumanoid.Health < originalHealth then
-								targetHumanoid.Health = originalHealth
-							end
-							task.wait(0.2)
-						end
-					end)
-
-					-- Wait for ragdoll duration
-					task.wait(RAGDOLL_DURATION)
-
-					-- Stop health protection
-					healthProtected = false
-
-					-- Recover from ragdoll
-					removeRagdoll()
-
-					-- Final health restore
-					if targetHumanoid and targetHumanoid.Parent then
-						targetHumanoid.Health = originalHealth
-					end
-				end)
-			end
-		end
-	end
-end
 
 -- ========================================
 -- SWORD SWITCHING
