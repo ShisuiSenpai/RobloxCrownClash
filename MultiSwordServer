@@ -101,6 +101,14 @@ local function createRagdoll(character)
 	-- Make sure root part is unanchored
 	rootPart.Anchored = false
 
+	-- CRITICAL: Cancel any ongoing jump momentum BEFORE ragdoll starts
+	-- This prevents the "float while jumping" bug
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+	if humanoid:GetState() == Enum.HumanoidStateType.Jumping then
+		-- Force cancel jump state immediately
+		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+	end
+
 	-- Find and replace Motor6D joints with BallSocketConstraints
 	for _, descendant in pairs(character:GetDescendants()) do
 		if descendant:IsA("Motor6D") then
@@ -164,67 +172,21 @@ local function createRagdoll(character)
 	return function()
 		if not character.Parent then return end
 
-		-- Clean up any leftover push forces
+		-- CRITICAL: Clean up any leftover push forces FIRST
 		for _, descendant in pairs(character:GetDescendants()) do
 			if descendant.Name == "PushForce" or descendant.Name == "PushAttachment" then
 				descendant:Destroy()
 			end
 		end
 
-		-- Gradually slow down velocities
+		-- IMPROVED: More aggressive velocity dampening to prevent floating
 		if rootPart and rootPart.Parent then
-			local currentVel = rootPart.AssemblyLinearVelocity
-			rootPart.AssemblyLinearVelocity = Vector3.new(
-				currentVel.X * 0.3,
-				math.max(currentVel.Y * 0.5, 0),
-				currentVel.Z * 0.3
-			)
+			-- Cancel ALL velocities to prevent stacking with jump momentum
+			rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 		end
 
-		-- Ground detection and smooth repositioning
-		if rootPart and rootPart.Parent then
-			local rayOrigin = rootPart.Position + Vector3.new(0, 3, 0)
-			local rayDirection = Vector3.new(0, -50, 0)
-
-			local raycastParams = RaycastParams.new()
-			raycastParams.FilterDescendantsInstances = {character}
-			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-
-			local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-
-			if rayResult then
-				local groundPosition = rayResult.Position
-				local targetPosition = groundPosition + Vector3.new(0, 4.5, 0)
-				local currentPosition = rootPart.Position
-
-				if currentPosition.Y < targetPosition.Y then
-					local targetCFrame = CFrame.new(
-						currentPosition.X,
-						targetPosition.Y,
-						currentPosition.Z
-					) * CFrame.Angles(0, math.atan2(rootPart.CFrame.LookVector.X, rootPart.CFrame.LookVector.Z), 0)
-
-					local tween = TweenService:Create(
-						rootPart,
-						TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-						{CFrame = targetCFrame}
-					)
-					tween:Play()
-					tween.Completed:Wait()
-				else
-					local targetCFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.atan2(rootPart.CFrame.LookVector.X, rootPart.CFrame.LookVector.Z), 0)
-					local tween = TweenService:Create(
-						rootPart,
-						TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-						{CFrame = targetCFrame}
-					)
-					tween:Play()
-					tween.Completed:Wait()
-				end
-			end
-		end
-
-		-- Remove all created constraints
+		-- Remove all created constraints BEFORE restoring joints
 		for _, constraint in pairs(createdConstraints) do
 			if constraint and constraint.Parent then
 				constraint:Destroy()
@@ -245,19 +207,61 @@ local function createRagdoll(character)
 			end
 		end
 
-		-- Reset humanoid state
+		-- NETWORK OWNERSHIP: Return ownership to player after knockback completes
+		if rootPart and rootPart.Parent then
+			local player = Players:GetPlayerFromCharacter(character)
+			if player then
+				rootPart:SetNetworkOwner(player)
+			end
+		end
+
+		-- Reset humanoid state (IMPROVED)
 		if humanoid and humanoid.Parent then
 			humanoid.RequiresNeck = true
 			humanoid.BreakJointsOnDeath = true
 			humanoid.PlatformStand = false
+			
+			-- CRITICAL: Disable jumping during recovery to prevent float bug
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
 			humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
 
-			humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+			-- Check if character is grounded or airborne
+			local rayOrigin = rootPart.Position
+			local rayDirection = Vector3.new(0, -5, 0)
 
-			task.wait(0.05)
-			if rootPart and rootPart.Parent then
-				rootPart.AssemblyLinearVelocity = Vector3.new(0, 6, 0)
+			local raycastParams = RaycastParams.new()
+			raycastParams.FilterDescendantsInstances = {character}
+			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+			local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+			if rayResult then
+				-- GROUNDED: Use Landing state for smooth recovery
+				humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+				
+				-- Slight upward adjustment to prevent clipping into ground
+				if rootPart and rootPart.Parent then
+					local groundY = rayResult.Position.Y
+					if rootPart.Position.Y - groundY < 2 then
+						rootPart.Position = Vector3.new(
+							rootPart.Position.X,
+							groundY + 3,
+							rootPart.Position.Z
+						)
+					end
+				end
+			else
+				-- AIRBORNE: Use Freefall (no extra velocity!)
+				humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 			end
+
+			-- Re-enable jumping after a short delay (prevents immediate jump cancel)
+			task.delay(0.3, function()
+				if humanoid and humanoid.Parent then
+					humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+				end
+			end)
 		end
 	end
 end
@@ -268,6 +272,17 @@ local function applyPushForce(character, direction, force)
 	if not rootPart then return end
 
 	rootPart.Anchored = false
+
+	-- NETWORK OWNERSHIP: Give server ownership during knockback for consistent physics
+	-- This prevents client-side prediction issues
+	rootPart:SetNetworkOwner(nil)
+
+	-- IMPORTANT: Clear any existing push forces first to prevent stacking
+	for _, existingForce in pairs(rootPart:GetChildren()) do
+		if existingForce.Name == "PushForce" or existingForce.Name == "PushAttachment" then
+			existingForce:Destroy()
+		end
+	end
 
 	-- Create attachment for LinearVelocity
 	local attachment = Instance.new("Attachment")
@@ -284,7 +299,8 @@ local function applyPushForce(character, direction, force)
 	linearVelocity.Parent = rootPart
 
 	-- Remove force after short duration for natural physics
-	task.delay(0.25, function()
+	-- REDUCED from 0.25s to 0.15s for tighter control
+	task.delay(0.15, function()
 		if linearVelocity and linearVelocity.Parent then
 			linearVelocity:Destroy()
 		end
@@ -613,6 +629,76 @@ local function initializePlayer(player)
 end
 
 -- ========================================
+-- HIT PROCESSING FUNCTION (Must be defined before attack handler)
+-- ========================================
+
+local function processHit(targetPlayer, attacker, attackerCharacter)
+	if not targetPlayer or not targetPlayer.Character then return end
+	
+	local targetCharacter = targetPlayer.Character
+	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+	local targetHumanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
+
+	if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
+		print("[SWORD] " .. attacker.Name .. " hit " .. targetPlayer.Name .. " with sword!")
+
+		-- Store original health
+		local originalHealth = targetHumanoid.Health
+
+		-- Calculate push direction with upward arc
+		local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
+		if attackerRoot then
+			local pushDirection = (targetRoot.Position - attackerRoot.Position).Unit
+			pushDirection = (pushDirection + Vector3.new(0, 0.3, 0)).Unit
+
+			-- Get push force from global config
+			local pushForce = SwordConfig.GlobalPushForce
+
+			-- Apply push and ragdoll
+			applyPushForce(targetCharacter, pushDirection, pushForce)
+			local removeRagdoll = createRagdoll(targetCharacter)
+
+			-- Track this push for kill attribution
+			RECENT_PUSHES[targetPlayer.UserId] = {
+				pusher = attacker,
+				time = tick()
+			}
+			print("[SWORD] Tracked push: " .. attacker.Name .. " -> " .. targetPlayer.Name)
+
+			-- Handle ragdoll in SEPARATE THREAD so it doesn't block sword unequip
+			if removeRagdoll then
+				task.spawn(function()
+					-- Health protection during ragdoll
+					local healthProtected = true
+					task.spawn(function()
+						while healthProtected and targetHumanoid and targetHumanoid.Parent do
+							if targetHumanoid.Health < originalHealth then
+								targetHumanoid.Health = originalHealth
+							end
+							task.wait(0.2)
+						end
+					end)
+
+					-- Wait for ragdoll duration
+					task.wait(RAGDOLL_DURATION)
+
+					-- Stop health protection
+					healthProtected = false
+
+					-- Recover from ragdoll
+					removeRagdoll()
+
+					-- Final health restore
+					if targetHumanoid and targetHumanoid.Parent then
+						targetHumanoid.Health = originalHealth
+					end
+				end)
+			end
+		end
+	end
+end
+
+-- ========================================
 -- ATTACK HANDLING (with PUSH instead of damage!)
 -- ========================================
 
@@ -652,74 +738,37 @@ attackRemote.OnServerEvent:Connect(function(attacker)
 		initializeSwordRemote:FireClient(otherPlayer, "PlayAttack", attacker, playerData.currentSword)
 	end
 
-	-- HITBOX DETECTION: Find target to push
-	local targetPlayer, targetDistance = findNearbyTarget(attackerCharacter, SwordConfig.GlobalAttackRange)
-
-	if targetPlayer and targetPlayer.Character then
-		local targetCharacter = targetPlayer.Character
-		local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-		local targetHumanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
-
-		if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
-			print("[SWORD] " .. attacker.Name .. " hit " .. targetPlayer.Name .. " with sword!")
-
-			-- Store original health
-			local originalHealth = targetHumanoid.Health
-
-			-- Calculate push direction with upward arc
-			local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
-			if attackerRoot then
-				local pushDirection = (targetRoot.Position - attackerRoot.Position).Unit
-				pushDirection = (pushDirection + Vector3.new(0, 0.3, 0)).Unit
-
-				-- Get push force from global config
-				local pushForce = SwordConfig.GlobalPushForce
-
-				-- Apply push and ragdoll
-				applyPushForce(targetCharacter, pushDirection, pushForce)
-				local removeRagdoll = createRagdoll(targetCharacter)
-
-				-- Track this push for kill attribution
-				RECENT_PUSHES[targetPlayer.UserId] = {
-					pusher = attacker,
-					time = tick()
-				}
-				print("[SWORD] Tracked push: " .. attacker.Name .. " -> " .. targetPlayer.Name)
-
-				-- Handle ragdoll in SEPARATE THREAD so it doesn't block sword unequip
-				if removeRagdoll then
-					task.spawn(function()
-						-- Health protection during ragdoll
-						local healthProtected = true
-						task.spawn(function()
-							while healthProtected and targetHumanoid and targetHumanoid.Parent do
-								if targetHumanoid.Health < originalHealth then
-									targetHumanoid.Health = originalHealth
-								end
-								task.wait(0.2)
-							end
-						end)
-
-						-- Wait for ragdoll duration
-						task.wait(RAGDOLL_DURATION)
-
-						-- Stop health protection
-						healthProtected = false
-
-						-- Recover from ragdoll
-						removeRagdoll()
-
-						-- Final health restore
-						if targetHumanoid and targetHumanoid.Parent then
-							targetHumanoid.Health = originalHealth
-						end
-					end)
-				end
+	-- IMPROVED HITBOX DETECTION: Sample multiple times during swing animation
+	-- This prevents hits from registering too early or missing fast-moving targets
+	local targetPlayer = nil
+	local hitDetected = false
+	local attackDuration = config.Attack.AttackDuration
+	local sampleCount = 5 -- Check 5 times during the swing
+	local sampleInterval = attackDuration / sampleCount
+	
+	task.spawn(function()
+		for i = 1, sampleCount do
+			if hitDetected then break end -- Stop checking once we hit someone
+			
+			-- Wait for the next sample point (e.g., 0.09s for 0.45s / 5 samples)
+			task.wait(sampleInterval)
+			
+			-- Check for nearby targets
+			local foundPlayer, foundDistance = findNearbyTarget(attackerCharacter, SwordConfig.GlobalAttackRange)
+			
+			if foundPlayer and foundPlayer.Character and not hitDetected then
+				hitDetected = true
+				targetPlayer = foundPlayer
+				
+				-- Process the hit immediately
+				processHit(targetPlayer, attacker, attackerCharacter)
 			end
 		end
-	end
-
-	-- Wait for attack duration
+	end)
+	
+	-- OLD SINGLE-CHECK CODE MOVED TO processHit() FUNCTION BELOW
+	
+	-- Wait for attack duration before unequipping
 	task.wait(config.Attack.AttackDuration)
 
 	-- Remove equipped sword
