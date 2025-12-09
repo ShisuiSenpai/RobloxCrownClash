@@ -53,7 +53,10 @@ local playerSwordData = {} -- {[userId] = {currentSword = "SwordName", isAttacki
 -- Push tracking (for kill attribution)
 local RECENT_PUSHES = {} -- [victimUserId] = {pusher = Player, time = tick()}
 local PUSH_ATTRIBUTION_TIME = 3 -- Seconds to attribute a lava death to a push
-local RAGDOLL_DURATION = 2 -- How long the ragdoll effect lasts
+local RAGDOLL_DURATION = 1 -- How long the ragdoll effect lasts (reduced from 2s for smoother gameplay)
+
+-- Recovery immunity tracking (prevents re-ragdolling during recovery)
+local RECOVERY_IMMUNITY = {} -- [character] = true/false
 
 -- ========================================
 -- UTILITY FUNCTIONS
@@ -79,16 +82,31 @@ local function setModelTransparency(model, transparency)
 end
 
 -- ========================================
--- PUSH + RAGDOLL SYSTEM (from old PushTool)
+-- PUSH + RAGDOLL SYSTEM (IMPROVED v3.0)
 -- ========================================
+
+-- Check if character is currently recovering (immune to ragdoll)
+local function isRecovering(character)
+	return RECOVERY_IMMUNITY[character] == true
+end
 
 -- Create proper ragdoll with constraints
 local function createRagdoll(character)
+	-- Check if already ragdolling or recovering
+	if isRecovering(character) then
+		return nil
+	end
+	
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return nil end
 
 	local rootPart = character:FindFirstChild("HumanoidRootPart")
 	if not rootPart then return nil end
+
+	-- Check if already ragdolled (prevent double-ragdoll)
+	if humanoid.PlatformStand == true then
+		return nil
+	end
 
 	-- Store original joint data
 	local originalJoints = {}
@@ -102,10 +120,10 @@ local function createRagdoll(character)
 	rootPart.Anchored = false
 
 	-- CRITICAL: Cancel any ongoing jump momentum BEFORE ragdoll starts
-	-- This prevents the "float while jumping" bug
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+	
 	if humanoid:GetState() == Enum.HumanoidStateType.Jumping then
-		-- Force cancel jump state immediately
 		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 	end
 
@@ -132,7 +150,7 @@ local function createRagdoll(character)
 				part0.Anchored = false
 				part1.Anchored = false
 
-				-- Create BallSocketConstraint
+				-- Create BallSocketConstraint with TIGHTER limits for less floppiness
 				local socket = Instance.new("BallSocketConstraint")
 				socket.Name = "RagdollSocket_" .. joint.Name
 				socket.Attachment0 = Instance.new("Attachment", part0)
@@ -141,9 +159,9 @@ local function createRagdoll(character)
 				socket.Attachment1.CFrame = joint.C1
 				socket.LimitsEnabled = true
 				socket.TwistLimitsEnabled = true
-				socket.UpperAngle = 45
-				socket.TwistLowerAngle = -45
-				socket.TwistUpperAngle = 45
+				socket.UpperAngle = 30 -- Reduced from 45 for less floppiness
+				socket.TwistLowerAngle = -30 -- Reduced from -45
+				socket.TwistUpperAngle = 30 -- Reduced from 45
 				socket.Parent = part0
 
 				table.insert(createdConstraints, socket)
@@ -158,10 +176,9 @@ local function createRagdoll(character)
 
 	-- Set humanoid to ragdoll state
 	humanoid.PlatformStand = true
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
 	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
-	-- Enable collision on limbs
+	-- Enable collision on limbs for ragdoll physics
 	for _, part in pairs(character:GetDescendants()) do
 		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
 			part.CanCollide = true
@@ -171,98 +188,85 @@ local function createRagdoll(character)
 	-- Return cleanup function
 	return function()
 		if not character.Parent then return end
+		if not humanoid or not humanoid.Parent then return end
+		if not rootPart or not rootPart.Parent then return end
 
-		-- CRITICAL: Clean up any leftover push forces FIRST
+		-- Set recovery immunity FIRST to prevent re-ragdolling
+		RECOVERY_IMMUNITY[character] = true
+
+		-- STEP 1: Clean up any leftover push forces
 		for _, descendant in pairs(character:GetDescendants()) do
 			if descendant.Name == "PushForce" or descendant.Name == "PushAttachment" then
 				descendant:Destroy()
 			end
 		end
 
-		-- IMPROVED: More aggressive velocity dampening to prevent floating
-		if rootPart and rootPart.Parent then
-			-- Cancel ALL velocities to prevent stacking with jump momentum
-			rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-			rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-		end
-
-		-- Remove all created constraints BEFORE restoring joints
+		-- STEP 2: Remove all ragdoll constraints
 		for _, constraint in pairs(createdConstraints) do
 			if constraint and constraint.Parent then
 				constraint:Destroy()
 			end
 		end
 
-		-- Restore original joints
+		-- STEP 3: Restore original Motor6D joints
 		for _, jointData in pairs(originalJoints) do
 			if jointData.Motor6D and jointData.Motor6D.Parent then
 				jointData.Motor6D.Enabled = true
 			end
 		end
 
-		-- Reset collision on limbs
+		-- STEP 4: Reset collision on limbs
 		for _, part in pairs(character:GetDescendants()) do
 			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
 				part.CanCollide = false
 			end
 		end
 
-		-- NETWORK OWNERSHIP: Return ownership to player after knockback completes
+		-- STEP 5: Wait a frame for physics to settle
+		task.wait()
+
+		-- STEP 6: Zero out velocities to prevent momentum carryover
+		if rootPart and rootPart.Parent then
+			rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+		end
+
+		-- STEP 7: Return network ownership to player
 		if rootPart and rootPart.Parent then
 			local player = Players:GetPlayerFromCharacter(character)
 			if player then
-				rootPart:SetNetworkOwner(player)
+				pcall(function()
+					rootPart:SetNetworkOwner(player)
+				end)
 			end
 		end
 
-		-- Reset humanoid state (IMPROVED)
-		if humanoid and humanoid.Parent then
-			humanoid.RequiresNeck = true
-			humanoid.BreakJointsOnDeath = true
-			humanoid.PlatformStand = false
-			
-			-- CRITICAL: Disable jumping during recovery to prevent float bug
-			humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-			humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-			humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+		-- STEP 8: Reset humanoid properties (do this AFTER physics cleanup)
+		humanoid.RequiresNeck = true
+		humanoid.BreakJointsOnDeath = true
+		humanoid.PlatformStand = false
 
-			-- Check if character is grounded or airborne
-			local rayOrigin = rootPart.Position
-			local rayDirection = Vector3.new(0, -5, 0)
+		-- STEP 9: Enable necessary states
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false) -- Keep disabled briefly
 
-			local raycastParams = RaycastParams.new()
-			raycastParams.FilterDescendantsInstances = {character}
-			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		-- STEP 10: Simple state transition - just use Running (most reliable)
+		-- Don't use Landed or GettingUp - they trigger animations that can conflict
+		humanoid:ChangeState(Enum.HumanoidStateType.Running)
 
-			local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-
-			if rayResult then
-				-- GROUNDED: Use Landing state for smooth recovery
-				humanoid:ChangeState(Enum.HumanoidStateType.Landed)
-				
-				-- Slight upward adjustment to prevent clipping into ground
-				if rootPart and rootPart.Parent then
-					local groundY = rayResult.Position.Y
-					if rootPart.Position.Y - groundY < 2 then
-						rootPart.Position = Vector3.new(
-							rootPart.Position.X,
-							groundY + 3,
-							rootPart.Position.Z
-						)
-					end
-				end
-			else
-				-- AIRBORNE: Use Freefall (no extra velocity!)
-				humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+		-- STEP 11: Re-enable jumping after recovery period
+		task.delay(0.2, function()
+			if humanoid and humanoid.Parent then
+				humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
 			end
+		end)
 
-			-- Re-enable jumping after a short delay (prevents immediate jump cancel)
-			task.delay(0.3, function()
-				if humanoid and humanoid.Parent then
-					humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-				end
-			end)
-		end
+		-- STEP 12: Clear recovery immunity after a short delay
+		task.delay(0.3, function()
+			RECOVERY_IMMUNITY[character] = nil
+		end)
 	end
 end
 
@@ -639,6 +643,12 @@ local function processHit(targetPlayer, attacker, attackerCharacter)
 	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
 	local targetHumanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
 
+	-- Check if target is recovering from previous ragdoll (immune)
+	if isRecovering(targetCharacter) then
+		print("[SWORD] " .. targetPlayer.Name .. " is recovering, cannot be hit")
+		return
+	end
+
 	if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
 		print("[SWORD] " .. attacker.Name .. " hit " .. targetPlayer.Name .. " with sword!")
 
@@ -654,8 +664,10 @@ local function processHit(targetPlayer, attacker, attackerCharacter)
 			-- Get push force from global config
 			local pushForce = SwordConfig.GlobalPushForce
 
-			-- Apply push and ragdoll
+			-- Apply push force first
 			applyPushForce(targetCharacter, pushDirection, pushForce)
+			
+			-- Create ragdoll (returns nil if already ragdolling or recovering)
 			local removeRagdoll = createRagdoll(targetCharacter)
 
 			-- Track this push for kill attribution
@@ -675,7 +687,7 @@ local function processHit(targetPlayer, attacker, attackerCharacter)
 							if targetHumanoid.Health < originalHealth then
 								targetHumanoid.Health = originalHealth
 							end
-							task.wait(0.2)
+							task.wait(0.1) -- Check more frequently
 						end
 					end)
 
@@ -685,10 +697,11 @@ local function processHit(targetPlayer, attacker, attackerCharacter)
 					-- Stop health protection
 					healthProtected = false
 
-					-- Recover from ragdoll
+					-- Recover from ragdoll (smooth recovery)
 					removeRagdoll()
 
-					-- Final health restore
+					-- Brief wait then restore health
+					task.wait(0.1)
 					if targetHumanoid and targetHumanoid.Parent then
 						targetHumanoid.Health = originalHealth
 					end
@@ -879,11 +892,21 @@ Players.PlayerAdded:Connect(function(player)
 		task.wait(0.5)
 		initializePlayer(player)
 	end)
+	
+	-- Clean up recovery immunity when character is removed
+	player.CharacterRemoving:Connect(function(character)
+		RECOVERY_IMMUNITY[character] = nil
+	end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
 	playerSwordData[player.UserId] = nil
 	RECENT_PUSHES[player.UserId] = nil
+
+	-- Clean up recovery immunity
+	if player.Character then
+		RECOVERY_IMMUNITY[player.Character] = nil
+	end
 
 	-- Also clean up if they were the pusher
 	for victimId, data in pairs(RECENT_PUSHES) do
@@ -895,6 +918,11 @@ end)
 
 -- Initialize existing players
 for _, player in pairs(Players:GetPlayers()) do
+	-- Set up character removing handler for existing players
+	player.CharacterRemoving:Connect(function(character)
+		RECOVERY_IMMUNITY[character] = nil
+	end)
+	
 	if player.Character then
 		task.spawn(function()
 			initializePlayer(player)
